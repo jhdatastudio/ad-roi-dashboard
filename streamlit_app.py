@@ -77,16 +77,41 @@ with summary_tab:
     st.dataframe(merged.sort_values('date', ascending=False).head(20), use_container_width=True)
 
 with trends_tab:
-    st.header("📈 Daily KPI Trends")
+    st.header("📈 KPI Trends Over Time")
+
+    # Select timeframe
+    freq = st.selectbox("Select Time Frequency:", ["Daily", "Weekly", "Monthly"])
+
+    # Convert date column
+    merged['date'] = pd.to_datetime(merged['date'])
+
+    if freq == "Weekly":
+        merged['Period'] = merged['date'].dt.to_period("W").apply(lambda r: r.start_time)
+    elif freq == "Monthly":
+        merged['Period'] = merged['date'].dt.to_period("M").apply(lambda r: r.start_time)
+    else:
+        merged['Period'] = merged['date']
+
+    # Aggregate by period
+    trend_df = (
+        merged.groupby('Period')[['ROAS', 'CPC', 'Conversion Rate']]
+        .mean()
+        .reset_index()
+        .sort_values('Period')
+    )
+
+    # Plot
     fig, ax = plt.subplots(3, 1, figsize=(10, 8), sharex=True)
-    sns.lineplot(data=merged, x='date', y='ROAS', ax=ax[0])
-    ax[0].set_title("ROAS")
-    sns.lineplot(data=merged, x='date', y='CPC', ax=ax[1])
-    ax[1].set_title("CPC")
-    sns.lineplot(data=merged, x='date', y='Conversion Rate', ax=ax[2])
-    ax[2].set_title("Conversion Rate")
+    sns.lineplot(data=trend_df, x='Period', y='ROAS', ax=ax[0])
+    ax[0].set_title(f"{freq} ROAS")
+    sns.lineplot(data=trend_df, x='Period', y='CPC', ax=ax[1])
+    ax[1].set_title(f"{freq} CPC")
+    sns.lineplot(data=trend_df, x='Period', y='Conversion Rate', ax=ax[2])
+    ax[2].set_title(f"{freq} Conversion Rate")
+
     plt.xticks(rotation=45)
     st.pyplot(fig)
+
 
 with flags_tab:
     st.header("⚠️ Flagged Sources (High CPC / Low ROAS)")
