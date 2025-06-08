@@ -25,6 +25,7 @@ def preprocess(costs, orders, visits):
     costs = costs.rename(columns={"source_id": "Source Id", "costs": "Cost"})
 
     visits_orders = visits.merge(orders, on="Uid", how="left")
+    visits_orders["date"] = pd.to_datetime(visits_orders["Start Ts"]).dt.date
     device_agg = visits_orders.groupby(["date", "Source Id", "Device"], as_index=False).agg({
         "Uid": "count",
         "Revenue": "sum",
