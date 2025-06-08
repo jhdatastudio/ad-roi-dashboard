@@ -4,6 +4,7 @@ import numpy as np
 import seaborn as sns
 import matplotlib.pyplot as plt
 
+# Streamlit & seaborn setup
 st.set_page_config(page_title="Ad ROI Dashboard", layout="wide")
 sns.set_theme(style="whitegrid")
 
@@ -15,33 +16,41 @@ def load_data():
     return costs, orders, visits
 
 @st.cache_data
-
 def preprocess(costs, orders, visits):
-    # Prepare dates
+    # Dates
     orders['date'] = pd.to_datetime(orders['Buy Ts']).dt.date
     visits['date'] = pd.to_datetime(visits['Start Ts']).dt.date
     costs['date'] = pd.to_datetime(costs['dt']).dt.date
 
-    # Aggregate data
+    # Aggregate Orders
     orders_kpi = (
-        orders.groupby(['date'])
-        .agg({'Revenue': 'sum', 'Uid': 'count'})
-        .rename(columns={'Uid': 'Orders'})
+        orders.groupby('date')
+        .agg(Revenue=('Revenue', 'sum'), Orders=('Uid', 'count'))
         .reset_index()
     )
+
+    # Aggregate Visits
     visits_kpi = (
-        visits.groupby(['date'])
-        .agg({'Uid': 'nunique'})
-        .rename(columns={'Uid': 'Clicks'})
+        visits.groupby('date')
+        .agg(Clicks=('Uid', 'nunique'))
         .reset_index()
     )
+
+    # Aggregate Costs
     costs_kpi = (
-        costs.groupby(['date'])
-        .agg({'costs': 'sum'})
-        .rename(columns={'costs': 'Cost'})
+        costs.groupby('date')
+        .agg(Cost=('costs', 'sum'))
         .reset_index()
     )
-    merged = costs_kpi.merge(visits_kpi, on='date', how='left').merge(orders_kpi, on='date', how='left')
+
+    # Merge
+    merged = (
+        costs_kpi
+        .merge(visits_kpi, on='date', how='left')
+        .merge(orders_kpi, on='date', how='left')
+    )
+
+    # Clean and Calculate
     merged[['Clicks', 'Orders', 'Revenue']] = merged[['Clicks', 'Orders', 'Revenue']].fillna(0)
     merged['ROAS'] = merged['Revenue'] / merged['Cost']
     merged['CPC'] = merged['Cost'] / merged['Clicks']
@@ -50,23 +59,25 @@ def preprocess(costs, orders, visits):
     merged.fillna(0, inplace=True)
     return merged
 
-# Load
+# Load and preprocess
 costs, orders, visits = load_data()
 merged = preprocess(costs, orders, visits)
 
-# Tabs
-summary_tab, trends_tab, device_tab, export_tab = st.tabs([
-    "📊 KPI Summary", "📈 Trends", "🖥️ By Device", "⬇️ Export"])
+# UI Tabs
+summary_tab, trends_tab, flags_tab, export_tab = st.tabs([
+    "📊 KPI Summary", "📈 Trends", "⚠️ Flagged Sources", "⬇️ Export Data"
+])
 
 with summary_tab:
-    st.header("Key KPI Metrics")
-    st.metric("Avg. ROAS", f"{merged['ROAS'].mean():.2f}")
-    st.metric("Avg. CPC", f"{merged['CPC'].mean():.2f}")
-    st.metric("Avg. Conversion Rate", f"{merged['Conversion Rate'].mean():.2%}")
-    st.dataframe(merged.sort_values('date', ascending=False).head(20))
+    st.header("📊 KPI Overview")
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Avg. ROAS", f"{merged['ROAS'].mean():.2f}")
+    col2.metric("Avg. CPC", f"{merged['CPC'].mean():.2f}")
+    col3.metric("Conversion Rate", f"{merged['Conversion Rate'].mean():.2%}")
+    st.dataframe(merged.sort_values('date', ascending=False).head(20), use_container_width=True)
 
 with trends_tab:
-    st.header("Daily KPI Trends")
+    st.header("📈 Daily KPI Trends")
     fig, ax = plt.subplots(3, 1, figsize=(10, 8), sharex=True)
     sns.lineplot(data=merged, x='date', y='ROAS', ax=ax[0])
     ax[0].set_title("ROAS")
@@ -74,19 +85,24 @@ with trends_tab:
     ax[1].set_title("CPC")
     sns.lineplot(data=merged, x='date', y='Conversion Rate', ax=ax[2])
     ax[2].set_title("Conversion Rate")
+    plt.xticks(rotation=45)
     st.pyplot(fig)
 
-with device_tab:
-    st.header("Custom KPI Flagging")
-    flags = (
+with flags_tab:
+    st.header("⚠️ Flagged Sources (High CPC / Low ROAS)")
+
+    kpi_flags = (
         merged.groupby('date')[['CPC', 'ROAS']].mean()
+        .round(3)
         .reset_index()
     )
-    flags['Flag'] = ''
-    flags.loc[flags['CPC'] > 1.0, 'Flag'] += ' High CPC'
-    flags.loc[flags['ROAS'] < 5.0, 'Flag'] += ' Low ROAS'
-    st.dataframe(flags[flags['Flag'] != ''])
+    kpi_flags['Flag'] = ''
+    kpi_flags.loc[kpi_flags['CPC'] > 1.0, 'Flag'] += ' High CPC'
+    kpi_flags.loc[kpi_flags['ROAS'] < 5.0, 'Flag'] += ' Low ROAS'
+    flagged = kpi_flags[kpi_flags['Flag'].str.strip() != '']
+
+    st.dataframe(flagged.style.background_gradient(cmap='OrRd', subset=['CPC', 'ROAS']), use_container_width=True)
 
 with export_tab:
-    st.header("Download Full KPI Table")
-    st.download_button("Download CSV", merged.to_csv(index=False), "kpi_summary.csv")
+    st.header("⬇️ Download KPI Table")
+    st.download_button("Download CSV", merged.to_csv(index=False), file_name="kpi_summary.csv", mime='text/csv')
